@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted } from "vue";
+import { ref, watch, onMounted, computed } from "vue";
 import { previews } from "../../../content/projects/previews";
 import { locale } from "../../../i18n/store";
 import PreviewCard from "../../projects/components/PreviewCard.vue";
@@ -8,13 +8,34 @@ import Banner from "../../../components/Banner.vue";
 import { t } from "../../../i18n/utils/translate";
 import { isFeatureEnabled } from "../../../utils/features";
 
-import type { ProjectPreview } from "../../../content/types";
+import type { ProjectPreview, ProjectCategory } from "../../../content/types";
+
+type FilterId = "all" | ProjectCategory;
+
+// Full list of filters in display order. All pills are always shown; selecting a
+// category with no projects yet renders an empty state (see `filteredPreviews`).
+const FILTERS: { id: FilterId; labelKey: string }[] = [
+  { id: "all", labelKey: "filter-all" },
+  { id: "web-design", labelKey: "filter-web-design" },
+  { id: "app-design", labelKey: "filter-app-design" },
+  { id: "branding", labelKey: "filter-branding" },
+  { id: "packaging", labelKey: "filter-packaging" },
+];
 
 const loadedPreviews = ref<ProjectPreview[] | null>(null);
+const activeFilter = ref<FilterId>("all");
 
 const emit = defineEmits<{
   (e: "loaded", previews: ProjectPreview[]): void;
 }>();
+
+const filteredPreviews = computed(() => {
+  const items = loadedPreviews.value ?? [];
+  if (activeFilter.value === "all") return items;
+  return items.filter((p) => p.category === activeFilter.value);
+});
+
+const isEmpty = computed(() => loadedPreviews.value !== null && filteredPreviews.value.length === 0);
 
 const loadPreviews = async () => {
   if (!locale.value) return;
@@ -41,10 +62,31 @@ onMounted(loadPreviews);
       </div>
     </div>
     <div class="grid">
-      <div class="projects-cards">
-        <PreviewCard v-for="preview in loadedPreviews" :key="preview.title" :preview="preview" />
-        <PreviewCard v-if="isFeatureEnabled('startProject')" />
+      <div class="projects-filters" role="tablist" :aria-label="t('projects')">
+        <button
+          v-for="filter in FILTERS"
+          :key="filter.id"
+          type="button"
+          role="tab"
+          :aria-selected="activeFilter === filter.id"
+          :class="['projects-filter', { 'projects-filter-active': activeFilter === filter.id }]"
+          data-cursor="pointer"
+          data-sound="click"
+          data-hoversound="hover"
+          @click="activeFilter = filter.id"
+        >
+          {{ t(filter.labelKey) }}
+        </button>
       </div>
+    </div>
+    <div class="grid">
+      <TransitionGroup tag="div" name="card-list" class="projects-cards">
+        <PreviewCard v-for="preview in filteredPreviews" :key="preview.slug" :preview="preview" />
+        <PreviewCard v-if="isFeatureEnabled('startProject')" key="start-project" />
+      </TransitionGroup>
+    </div>
+    <div class="grid" v-if="isEmpty">
+      <p class="projects-empty">{{ t("no-projects-in-category") }}</p>
     </div>
   </div>
 </template>
@@ -115,6 +157,75 @@ onMounted(loadPreviews);
     }
   }
 
+  &-empty {
+    grid-column: 1 / 13;
+    text-align: center;
+    padding: var(--space-xl) 0;
+    font-size: var(--font-size-lg);
+    font-weight: 500;
+    color: var(--color-text-300);
+
+    @include mixins.mq("lg") {
+      grid-column: 3 / 11;
+    }
+  }
+
+  &-filters {
+    grid-column: 1 / 13;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+
+    @include mixins.mq("md") {
+      grid-column: 1 / 10;
+    }
+
+    @include mixins.mq("lg") {
+      grid-column: 3 / 11;
+    }
+  }
+
+  &-filter {
+    appearance: none;
+    cursor: pointer;
+    white-space: nowrap;
+    border: var(--stroke-md) solid var(--color-grayscale-500);
+    background-color: transparent;
+    color: var(--color-text-300);
+    border-radius: 999px;
+    padding: var(--space-xs) var(--space-md);
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    line-height: 1;
+    transition:
+      background-color 0.25s var(--ease-smooth),
+      border-color 0.25s var(--ease-smooth),
+      color 0.25s var(--ease-smooth);
+
+    @include mixins.mq("lg") {
+      font-size: var(--font-size-md);
+    }
+
+    @include mixins.hover {
+      &:hover {
+        border-color: var(--color-text-400);
+        color: var(--color-text-400);
+      }
+    }
+
+    &-active {
+      background-color: var(--color-text-400);
+      border-color: var(--color-text-400);
+      color: var(--color-beige-400);
+
+      @include mixins.hover {
+        &:hover {
+          color: var(--color-beige-400);
+        }
+      }
+    }
+  }
+
   &-notch {
     &-start {
       position: absolute;
@@ -135,6 +246,7 @@ onMounted(loadPreviews);
   }
 
   &-cards {
+    position: relative;
     max-width: 100%;
     flex: 1;
     grid-column: 1 / span 12;
@@ -155,5 +267,26 @@ onMounted(loadPreviews);
       grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
     }
   }
+}
+
+// TransitionGroup: fade + scale on enter/leave, FLIP "move" when cards rearrange.
+.card-list-move,
+.card-list-enter-active,
+.card-list-leave-active {
+  transition:
+    opacity 0.4s var(--ease-smooth),
+    transform 0.4s var(--ease-smooth);
+}
+
+.card-list-enter-from,
+.card-list-leave-to {
+  opacity: 0;
+  transform: scale(0.92);
+}
+
+// Take leaving cards out of flow so remaining cards animate to their new spots.
+.card-list-leave-active {
+  position: absolute;
+  width: 100%;
 }
 </style>

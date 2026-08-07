@@ -21,9 +21,12 @@ export interface SkillContent {
   bullets: string[];
 }
 
+export type ProjectCategory = "web-design" | "app-design" | "branding" | "packaging";
+
 export interface ProjectPreview {
   title: string;
   slug: string;
   thumbnail: string;
   description: string;
+  category: ProjectCategory;
 }
